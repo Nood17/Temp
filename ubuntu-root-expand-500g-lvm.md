@@ -110,7 +110,7 @@ lsblk -o NAME,SIZE,FSTYPE,UUID,MOUNTPOINT > ~/disk-before.txt
 sudo blkid >> ~/disk-before.txt; cp /etc/fstab ~/fstab.before
 ```
 
-同时做两件事：**备份不可再生的数据**，以及**准备一个 ≥ 8 GB 的 U 盘**（详见第 9 节 FAQ 的前两问：为什么要做、怎么做、版本怎么选）。
+同时做两件事：**备份不可再生的数据**，以及**准备一个 ≥ 8 GB 的 U 盘**（为什么要做、怎么做、版本怎么选见第 9 节 FAQ 的 Q1/Q2，逐步操作见第 11 节）。
 
 - 备份：项目/代码、`~/.ssh`、`~/.gnupg`、关键配置、文档，以及训练脚本与数据清单；不要备份到同一块物理盘上。
 - U 盘：用与本机 Linux 同版本或更新的桌面 ISO（本机是 26.x 就写 26.04 的 ISO，**不要用旧的 22.04.5**）；用 Rufus/balenaEtcher 写入，U 盘数据会被清空。
@@ -397,3 +397,83 @@ LVM 的 `pvcreate` / `vgcreate` / `lvcreate` 也在 live 会话里执行。
 | 单位换算 | 1 GiB = 1024 MiB；磁盘管理 / diskpart 里的「MB」实际是 MiB |
 
 **没有 U 盘时的替代路径（风险更高，不推荐）**：分区改用 Windows 的 `diskpart create partition primary` 创建，`pvcreate` 之后的步骤全部在运行中的 Linux 里完成。缺点：`rsync` 拷贝运行中的系统一致性不保证，且一旦 GRUB 起不来就没有救援环境。
+
+---
+
+## 11. 准备工作详细步骤：确认版本 → 制作 U 盘 → 采集现状
+
+这三件事是两次开机：**第一次在现有的 Linux 里**完成「确认版本 + 采集现状」（约 2 分钟），**第二次回到 Windows** 制作 live U 盘（十几分钟，主要看网速）。
+
+### 11.1 确认版本并采集现状（在现有 Linux 里）
+
+打开终端（Ubuntu 是 `Ctrl+Alt+T`），整段粘贴执行——这一条同时完成「确认版本」和「采集第 2 节待填项」：
+
+```bash
+{
+  echo "== os-release ==";  cat /etc/os-release
+  echo "== kernel ==";      uname -r
+  echo "== lsblk ==";       lsblk -o NAME,SIZE,FSTYPE,UUID,MOUNTPOINT
+  echo "== df -T ==";       df -T /
+  echo "== fstab ==";       cat /etc/fstab
+  echo "== swap ==";        swapon --show
+  echo "== lvm2 ==";        dpkg -l lvm2 2>/dev/null | tail -1
+  echo "== ESP ==";         sudo ls /boot/efi/EFI
+} 2>&1 | tee ~/disk-before.txt
+```
+
+看 `os-release` 里的 `VERSION_ID`，它决定要准备哪个 live 盘：
+
+| 本机版本 | 用哪个 live 盘 | 原因 |
+|---|---|---|
+| **26.04** | 26.04.1 桌面 ISO | 点版本含发布后的更新，工具链最新 |
+| **26.10** | 26.10 桌面 ISO | live 盘版本必须 ≥ 系统版本 |
+| **22.04** | 现成的 22.04.5 ISO | 版本一致，直接可用 |
+
+输出与第 2 节待填项的对应关系：
+
+| 待填项 | 看哪一段 |
+|---|---|
+| 发行版版本 | `os-release` 的 `VERSION` / `VERSION_ID` |
+| 根文件系统类型 | `df -T /` 第二列，或 `lsblk` 中挂载点为 `/` 那行的 `FSTYPE` |
+| 是否有独立 `/boot`、`/home`、swap 分区 | `lsblk` 输出；`swapon --show` 为空即无 swap 分区 |
+| `lvm2` 是否已安装 | `lvm2` 那段，应显示 `ii  lvm2  x.y.z` |
+| `/etc/fstab` 中根分区写法 | `fstab` 中挂载点为 `/` 的那行，应为 `UUID=...` |
+
+### 11.2 制作 live U 盘（回到 Windows）
+
+镜像（走清华镜像，国内速度较好；均为官方 ISO 的内容）：
+
+| 选择 | 下载地址 | 大小 |
+|---|---|---|
+| 26.04 | https://mirrors.tuna.tsinghua.edu.cn/ubuntu-releases/26.04.1/ubuntu-26.04.1-desktop-amd64.iso | 6.48 GB |
+| 26.10 | https://mirrors.tuna.tsinghua.edu.cn/ubuntu-releases/26.10/ubuntu-26.10-desktop-amd64.iso | 6.62 GB |
+
+下载后核对完整性：
+
+```powershell
+certutil -hashfile <下载的ISO完整路径> SHA256
+```
+
+26.04.1 桌面版的期望值（同目录 `SHA256SUMS` 里可查）：
+
+```
+601e30fbf5d97759367c632e2c33630665039b7e2158fd068403da3ccf1bda1f
+```
+
+写入 U 盘（Rufus，约 10 分钟）：
+
+1. U 盘至少 8 GB（8 GB 盘实际可用约 7.4 GiB，装 6.5 GB 的 ISO 很紧但可行，16 GB 更稳）；**写入前 U 盘数据会被全部清空**，先确认或先备份；
+2. 打开 Rufus →「设备」选 U 盘 →「选择」选 ISO → 分区类型 **GPT**、目标系统 **UEFI（非 CSM）**；
+3. 点「开始」；若弹出 ISOHybrid 提示，选「以 ISO 镜像模式写入（推荐）」，等待完成；
+4. Secure Boot 不需要关闭（官方 ISO 有签名，可直接引导）；不想用 Rufus 可以用 balenaEtcher，步骤更少。
+
+### 11.3 把采集结果交回本文档
+
+把 11.1 的输出贴出来即可；如果太长，可以直接从 Linux 拷到 Windows 分区再由 Windows 侧读取：
+
+```bash
+ls /media/$USER/                          # 看 D 盘挂载点的实际名字（通常是 Data）
+cp ~/disk-before.txt /media/$USER/<上面看到的名字>/
+```
+
+拿到输出后，把结果填进第 2 节的表格并同步第 1 节的现状表。输出里含分区 UUID，若要放到公开仓库，建议替换成 `xxxx`。
