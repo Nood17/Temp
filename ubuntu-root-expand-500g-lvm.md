@@ -170,9 +170,19 @@ PowerShell 里查同一个上限：`Get-PartitionSupportedSize -DiskNumber 0 -Pa
 1. 按 `querymax` 给的上限缩（根分区 = 200 GiB + 该上限），缺口以后从 C 挤——LVM 不要求新空间相邻，做法见第 7 节；
 2. 用 DiskGenius 之类的第三方工具做「调整分区大小」，它可以搬移 MFT 等系统工具动不了的数据，通常能压得更狠；动手前先备份 D 上的重要数据。
 
+> **本机实测（2026-10-17）**：本例 D 盘 `shrink querymax` 长期只有 88064 MB，逐项排查结果是：
+> `defrag D: /X /V` 成功执行（空闲碎片 2149 → 98）但上限**不变**，说明卡住的不是数据位置；
+> `vssadmin list shadowstorage /for=D:` 返回「找不到满足查询的项目」，排除卷影副本；
+> `fsutil fsinfo ntfsinfo D:` 显示 MFT 区仅 24 MB、MFT 起始在 3 GB 处、保留簇 4 MB，都不在卷尾；
+> 最后 `fsutil usn deletejournal /d D:` 删掉 USN 变更日志（Windows 会自动重建）后，上限立刻从 **88064 MB 跳到 322979 MB**。
+> 结论：**USN 日志是本次的元凶**；遇到「有空闲空间却缩不动」时，优先清 USN 日志与卷影副本，再考虑整理与第三方工具。
+
 > 本步可逆：未分配空间紧贴 D 右侧，随时可以用「扩展卷」还给它。
 
 ### 第 2 步：U 盘启动，在未分配空间上建一个 LVM 分区
+
+> **更省事的做法**：也可以在 Windows 里就把这块空间建成分区（不用格式化），这样 live 会话里直接从 `pvcreate` 开始，少一步手算 MiB：
+> `diskpart` → `select disk 0` → `create partition primary` → `list partition`（应多出一个约 300 GiB 的分区，编号 7）。若 Windows 弹出「需要格式化」，点取消。
 
 完全关机（用「关机」，不要用「重启」，避免快速启动把 NTFS 卷锁在休眠态）→ 开机按 F12 选 U 盘启动 → 选择 **Try Ubuntu**（不要点 Install）→ 打开终端。
 
