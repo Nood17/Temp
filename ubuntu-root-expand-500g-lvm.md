@@ -31,11 +31,16 @@
 
 | 待确认项 | 期望值 | 实测 |
 |---|---|---|
-| 发行版版本 | 与本机一致（`cat /etc/os-release`） | |
-| 根文件系统类型 | `ext4`（`df -T /`） | |
-| 是否有独立 `/boot`、`/home`、swap 分区 | 无 | |
-| `lvm2` 是否已安装 | 已安装 | |
-| `/etc/fstab` 中根分区写法 | `UUID=...` | |
+| 发行版版本 | 与本机一致 | **Ubuntu 26.04 LTS（Resolute Raccoon）**，内核 `7.0.0-38-generic` |
+| 根文件系统类型 | `ext4` | **ext4**，`/dev/nvme0n1p6`，UUID `2e75b9ea-c4ba-4a91-879e-b8a73ae24eb5` |
+| 是否有独立 `/boot`、`/home`、swap 分区 | 无 | **无**：只有 `/` 和 `/boot/efi`；swap 是 4 GiB 的 `/swap.img` 文件 |
+| `lvm2` 是否已安装 | 已安装 | **未安装**（`dpkg -l lvm2` 显示 `un`）→ 动手前先 `sudo apt install lvm2` |
+| `/etc/fstab` 中根分区写法 | `UUID=...` | `/dev/disk/by-uuid/2e75b9ea-...`，按第 6 节第 5 步换成新卷的 UUID |
+| live U 盘 | 与本机同版本 | **已有**：29.3 GB U 盘，卷标 `UBUNTU 26_0`，已写入 Ubuntu 26.04（`sda1`，挂载于 `/run/media/nood/UBUNTU 26_0`） |
+
+> **关键约束（决定方案可行性）**：根分区当前已用 **152 GiB / 196 GiB（82%）**，只剩 35 GiB 空闲。
+> 本方案是「先复制到新卷、验证后再切换」，所以**新卷容量必须 ≥ 现有根分区的已用量（约 155 GiB，留余量建议 200 GiB 以上）**。
+> 这意味着 D 至少要能腾出 200 GiB；只腾出 86 GiB 不足以承载这次复制，必须先把 D 的压缩上限解决掉（见第 6 节第 1 步的排错），或把 C 腾出的空间也纳入同一个卷组。
 
 ---
 
@@ -468,6 +473,8 @@ LVM 的 `pvcreate` / `vgcreate` / `lvcreate` 也在 live 会话里执行。
 | `/etc/fstab` 中根分区写法 | `fstab` 中挂载点为 `/` 的那行，应为 `UUID=...` |
 
 ### 11.2 制作 live U 盘（回到 Windows）
+
+> 本机已经有一支 live U 盘（`lsblk` 里的 `sda`，29.3 GB，卷标 `UBUNTU 26_0`，已写入 Ubuntu 26.04），版本符合要求，本步可以直接跳过。
 
 镜像（走清华镜像，国内速度较好；均为官方 ISO 的内容）：
 
