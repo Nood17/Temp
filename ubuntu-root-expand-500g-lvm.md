@@ -130,12 +130,40 @@ shrink desired=307200
 
 预期结果：D 变成 **51.46 GiB**，右侧出现 **300 GiB 未分配空间**。
 
-若可压缩量不足 300 GiB，先整理再重试：
+#### 报错「指定的压缩大小太大，且会导致卷小于最小卷大小」怎么办
 
-```powershell
-Optimize-Volume -DriveLetter D -Verbose
-vssadmin delete shadows /for=D: /all      # 如果 D 上存在卷影副本
+这个报错**不是空闲空间不够**，而是 NTFS 只能在「最后一个不可移动簇」之后回收空间。卷影副本 / 系统保护、MFT、以及刚写入的大文件都可能压在卷尾，导致明明有几百 GiB 空闲却缩不动。按顺序处理：
+
 ```
+:: 1) 先看真实上限（MB）
+diskpart
+select volume D
+shrink querymax
+exit
+
+:: 2) 清掉 D 上的卷影副本与系统保护
+vssadmin list shadows /for=D:
+vssadmin delete shadows /for=D: /all
+:: 图形界面： sysdm.cpl -> 系统保护 -> 选中 D -> 配置 -> 禁用系统保护 -> 删除
+
+:: 3) 整合文件与空闲空间（把数据从卷尾挪走）
+defrag D: /X /V
+
+:: 4) 再查上限，够了就缩
+diskpart
+select volume D
+shrink querymax
+shrink desired=307200
+```
+
+PowerShell 里查同一个上限：`Get-PartitionSupportedSize -DiskNumber 0 -PartitionNumber 4`（看输出里的 `SizeMin`）。
+
+**不要把备份文件放在 D 上**：D 要缩到 51.46 GiB，备份会把它挤到没有余量；而且同一块物理盘也不构成真正的备份。备份放外部硬盘或网盘，退而求其次放 C:\\。
+
+**如果 `querymax` 仍不足 307200 MB**，有两个选择：
+
+1. 按 `querymax` 给的上限缩（根分区 = 200 GiB + 该上限），缺口以后从 C 挤——LVM 不要求新空间相邻，做法见第 7 节；
+2. 用 DiskGenius 之类的第三方工具做「调整分区大小」，它可以搬移 MFT 等系统工具动不了的数据，通常能压得更狠；动手前先备份 D 上的重要数据。
 
 > 本步可逆：未分配空间紧贴 D 右侧，随时可以用「扩展卷」还给它。
 
